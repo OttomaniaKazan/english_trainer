@@ -364,13 +364,13 @@ def update_word_progress(word_id: int, user_id: int, is_correct: bool) -> bool:
 
         became_learned = False
         if is_correct:
-            progress.correct_streak += 1
-            if progress.correct_streak >= 3:
-                progress.is_learned = True
+            progress.correct_streak += 1 # type: ignore
+            if progress.correct_streak >= 3: # type: ignore
+                progress.is_learned = True # type: ignore
                 became_learned = True
         else:
-            progress.correct_streak = 0
-            progress.is_learned = False
+            progress.correct_streak = 0 # type: ignore
+            progress.is_learned = False # type: ignore
 
         session.commit()
         return became_learned
