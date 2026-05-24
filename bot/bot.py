@@ -5,7 +5,7 @@ import re
 from telebot import types
 from telebot.types import Message
 
-from bot.bot_handlers import create_category_list, create_user, delete_word_by_id, generate_next_card, get_categories_with_duplicate_word, get_last_added_word, get_user_state, not_enough_words, save_word_pair, update_user_state, filter_words_for_user, create_data_for_train, check_pair_duplicate
+from bot.bot_handlers import create_category_list, create_user, delete_word_by_id, generate_next_card, get_categories_with_duplicate_word, get_last_added_word, get_user_state, not_enough_words, save_word_pair, update_user_state, filter_words_for_user, create_data_for_train, check_pair_duplicate, update_word_progress
 from bot.buttons import Command
 from bot.states import State
 from bot.init_bot import bot
@@ -190,9 +190,17 @@ def training_words(message):
         else:
             bot.send_message(message.chat.id, f"❌ Ошибка. Правильный ответ: {context.get('correct_en_word')}")
 
+        # Обновляем прогресс изучения
+        current_word_id = context.get('current_word_id')
+        if current_word_id:
+            became_learned = update_word_progress(current_word_id, user_id, user_ans == correct)
+            if became_learned:
+                # Удаляем выученное слово из локального пула, чтобы оно не попало в следующий вопрос
+                context['words_pool'] = [w for w in context.get('words_pool', []) if w.word_id != current_word_id]
+
         generate_next_card(message, user_id, context)
         return
-
+    
     # ==================== ПЕРВЫЙ ЗАПУСК / ВЫБОР КАТЕГОРИИ ====================
     update_user_state(user_id, State.TRAINING)
     category_name = text.split(' (')[0].strip()

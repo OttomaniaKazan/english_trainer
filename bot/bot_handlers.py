@@ -10,7 +10,6 @@ from database.models import Users, Words, Category, ActivityJournal, UserProgres
 from bot.states import State
 from decorators.decorators import users_logger
 from telebot import types
-from bot.states import State
 from bot.buttons import Command
 
 from telebot.types import Message
@@ -177,19 +176,36 @@ def create_category_list(user_tg_id: int) -> list:
     return category_list
 
 def filter_words_for_user(user_tg_id: int, category_name: str) -> list:
-    """ Формирование списка слов для тренировки """
-
+    """ Формирование списка слов для тренировки (исключает удалённые и выученные) """
     with Session() as session:
-        words = session.query(Words).join(Category).filter(Category.name == category_name).filter(Words.owner_user_id.is_(None))
+        # Базовый запрос: слова категории (системные + пользовательские)
+        base_query = session.query(Words).join(Category).filter(
+            Category.name == category_name,
+            (Words.owner_user_id.is_(None)) | (Words.owner_user_id == user_tg_id)
+        )
 
-        users_words = session.query(Words).join(Category).filter(Category.name == category_name).filter(Words.owner_user_id == user_tg_id)
+        # Подзапрос удалённых слов
+        deleted_ids = (
+            session.query(Words.word_id)
+            .join(Category)
+            .join(ActivityJournal, ActivityJournal.word_id == Words.word_id)
+            .filter(
+                Category.name == category_name,
+                ActivityJournal.user_id == user_tg_id,
+                ActivityJournal.action_type == 'delete'
+            ).distinct()
+        )
 
-        deleted_words_by_user = session.query(Words.word_id).distinct().join(Category).join(ActivityJournal).filter(Category.name == category_name).filter(ActivityJournal.user_id == user_tg_id).filter(ActivityJournal.action_type == 'delete').subquery()
+        # Подзапрос выученных слов
+        learned_ids = (
+            session.query(UserProgress.word_id)
+            .filter(UserProgress.user_tg_id == user_tg_id, UserProgress.is_learned.is_(True))
+        )
 
-        deleted_ids = [row[0] for row in session.query(deleted_words_by_user.c.word_id).all()]
-        result = words.union(users_words).filter(Words.word_id.notin_(deleted_ids)).all()
-
-    return result
+        return base_query.filter(
+            ~Words.word_id.in_(deleted_ids),
+            ~Words.word_id.in_(learned_ids)
+        ).all()
 
 def create_data_for_train(words: list, previous_ru_word: str | None) -> tuple[str, str, list[str]] | None:
     """ Создание данных для тренировки из списка слов """
@@ -331,3 +347,30 @@ def generate_next_card(message, user_id, context, skip_feedback=False):
         'correct_en_word': correct_en,
         'current_word_id': next((w.word_id for w in words if w.ru_word == ru_word), None)
     })
+
+def update_word_progress(word_id: int, user_id: int, is_correct: bool) -> bool:
+    """
+    Обновление прогресса изучения слова.
+    Возвращает True, если слово только что перешло в статус 'выучено'.
+    """
+    with Session() as session:
+        progress = session.query(UserProgress).filter_by(
+            user_tg_id=user_id, word_id=word_id
+        ).first()
+
+        if not progress:
+            progress = UserProgress(user_tg_id=user_id, word_id=word_id, correct_streak=0, is_learned=False)
+            session.add(progress)
+
+        became_learned = False
+        if is_correct:
+            progress.correct_streak += 1
+            if progress.correct_streak >= 3:
+                progress.is_learned = True
+                became_learned = True
+        else:
+            progress.correct_streak = 0
+            progress.is_learned = False
+
+        session.commit()
+        return became_learned
