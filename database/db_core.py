@@ -3,6 +3,7 @@
 import os
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,3 +18,4 @@ DSN = f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db_name}"
 
 engine = create_engine(DSN)
 Base = declarative_base()
+Session = sessionmaker(bind=engine)
